@@ -452,6 +452,14 @@ class ChatCompletionsTransport(ProviderTransport):
             # Temperature
             fixed_temperature: Any — from _fixed_temperature_for_model()
             omit_temperature: bool
+            # Other sampling params (OpenAI-compatible, pass-through)
+            top_p: float | None
+            frequency_penalty: float | None
+            presence_penalty: float | None
+            # Non-standard sampling params (llama.cpp / vLLM / DeepSeek-compatible,
+            # forwarded via extra_body)
+            top_k: int | None
+            min_p: float | None
             # Reasoning
             supports_reasoning: bool
             github_reasoning_extra: dict | None
@@ -497,6 +505,31 @@ class ChatCompletionsTransport(ProviderTransport):
         timeout = params.get("timeout")
         if timeout is not None:
             api_kwargs["timeout"] = timeout
+
+        # Temperature (legacy path — profile path handles it in
+        # _build_kwargs_from_profile).  Priority chain:
+        #   omit_temperature   → don't send (model manages its own temp)
+        #   fixed_temperature  → override (model-specific contract)
+        #   temperature        → user-configured (from config.yaml or CLI)
+        #   otherwise          → don't send (let provider use its default)
+        _omit = params.get("omit_temperature", False)
+        _fixed = params.get("fixed_temperature")
+        _user_temp = params.get("temperature")
+        if _omit:
+            pass
+        elif _fixed is not None:
+            api_kwargs["temperature"] = _fixed
+        elif _user_temp is not None:
+            api_kwargs["temperature"] = _user_temp
+
+        # Other sampling params (legacy path) — pass through when set.
+        # top_p / frequency_penalty / presence_penalty are OpenAI-compatible
+        # and have no omit/fixed contract, so a non-None value is forwarded
+        # verbatim; otherwise the provider uses its default.
+        for _key in ("top_p", "frequency_penalty", "presence_penalty"):
+            _val = params.get(_key)
+            if _val is not None:
+                api_kwargs[_key] = _val
 
         # Tools
         if tools:
@@ -628,6 +661,16 @@ class ChatCompletionsTransport(ProviderTransport):
             elif raw_thinking_config:
                 extra_body["thinking_config"] = raw_thinking_config
 
+        # Non-standard sampling params (llama.cpp / vLLM / DeepSeek-compatible).
+        # Not part of the OpenAI Chat Completions contract, so the SDK would
+        # reject them as unknown kwargs — forward via extra_body instead, which
+        # merges them into the top level of the request body where these
+        # servers expect them.
+        for _key in ("top_k", "min_p"):
+            _val = params.get(_key)
+            if _val is not None:
+                extra_body[_key] = _val
+
         # Merge any pre-built extra_body additions
         additions = params.get("extra_body_additions")
         if additions:
@@ -690,6 +733,15 @@ class ChatCompletionsTransport(ProviderTransport):
             temp = params.get("temperature")
             if temp is not None:
                 api_kwargs["temperature"] = temp
+
+        # Other sampling params (profile path) — pass through when set.
+        # top_p / frequency_penalty / presence_penalty are OpenAI-compatible
+        # and have no omit/fixed contract, so a non-None value is forwarded
+        # verbatim; otherwise the provider uses its default.
+        for _key in ("top_p", "frequency_penalty", "presence_penalty"):
+            _val = params.get(_key)
+            if _val is not None:
+                api_kwargs[_key] = _val
 
         # Timeout
         timeout = params.get("timeout")
@@ -754,6 +806,16 @@ class ChatCompletionsTransport(ProviderTransport):
         # Profile's reasoning/thinking extra_body entries
         if extra_body_from_profile:
             extra_body.update(extra_body_from_profile)
+
+        # Non-standard sampling params (llama.cpp / vLLM / DeepSeek-compatible).
+        # Not part of the OpenAI Chat Completions contract, so the SDK would
+        # reject them as unknown kwargs — forward via extra_body instead, which
+        # merges them into the top level of the request body where these
+        # servers expect them.
+        for _key in ("top_k", "min_p"):
+            _val = params.get(_key)
+            if _val is not None:
+                extra_body[_key] = _val
 
         # Merge any pre-built extra_body additions from the caller
         additions = params.get("extra_body_additions")

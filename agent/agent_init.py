@@ -541,6 +541,12 @@ def init_agent(
     max_tokens: int = None,
     reasoning_config: Dict[str, Any] = None,
     service_tier: str = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    frequency_penalty: Optional[float] = None,
+    presence_penalty: Optional[float] = None,
+    top_k: Optional[int] = None,
+    min_p: Optional[float] = None,
     request_overrides: Dict[str, Any] = None,
     prefill_messages: List[Dict[str, Any]] = None,
     platform: str = None,
@@ -893,6 +899,60 @@ def init_agent(
     agent.max_tokens = max_tokens  # None = use model default
     agent.reasoning_config = reasoning_config  # None = use default (medium for OpenRouter)
     agent.service_tier = service_tier
+
+    # Load config once for all subsequent sections
+    try:
+        from hermes_cli.config import load_config as _load_agent_config
+        _agent_cfg = _load_agent_config()
+    except Exception:
+        _agent_cfg = {}
+
+    # Temperature: read from config; explicit param takes precedence.
+    if temperature is None:
+        _raw = cfg_get(_agent_cfg, "model", "temperature")
+        if _raw is not None and _raw != "":
+            temperature = float(_raw)
+    agent.temperature = temperature
+
+    # top_p: read from config; explicit param takes precedence.
+    if top_p is None:
+        _raw = cfg_get(_agent_cfg, "model", "top_p")
+        if _raw is not None and _raw != "":
+            top_p = float(_raw)
+    agent.top_p = top_p
+
+    # frequency_penalty: read from config; explicit param takes precedence.
+    if frequency_penalty is None:
+        _raw = cfg_get(_agent_cfg, "model", "frequency_penalty")
+        if _raw is not None and _raw != "":
+            frequency_penalty = float(_raw)
+    agent.frequency_penalty = frequency_penalty
+
+    # presence_penalty: read from config; explicit param takes precedence.
+    if presence_penalty is None:
+        _raw = cfg_get(_agent_cfg, "model", "presence_penalty")
+        if _raw is not None and _raw != "":
+            presence_penalty = float(_raw)
+    agent.presence_penalty = presence_penalty
+
+    # top_k: read from config; explicit param takes precedence.
+    # Non-standard OpenAI param (llama.cpp / vLLM / DeepSeek-compatible),
+    # forwarded via extra_body in the transport.
+    if top_k is None:
+        _raw = cfg_get(_agent_cfg, "model", "top_k")
+        if _raw is not None and _raw != "":
+            top_k = int(_raw)
+    agent.top_k = top_k
+
+    # min_p: read from config; explicit param takes precedence.
+    # Non-standard OpenAI param (llama.cpp / vLLM / DeepSeek-compatible),
+    # forwarded via extra_body in the transport.
+    if min_p is None:
+        _raw = cfg_get(_agent_cfg, "model", "min_p")
+        if _raw is not None and _raw != "":
+            min_p = float(_raw)
+    agent.min_p = min_p
+
     agent.request_overrides = dict(request_overrides or {})
     agent.prefill_messages = prefill_messages or []  # Prefilled conversation turns
     agent._force_ascii_payload = False
@@ -1683,15 +1743,7 @@ def init_agent(
     # In-memory todo list for task planning (one per agent/session)
     from tools.todo_tool import TodoStore
     agent._todo_store = TodoStore()
-    
-    # Load config once for memory, skills, and compression sections
-    try:
-        from hermes_cli.config import load_config_readonly as _load_agent_config
-        _agent_cfg = _load_agent_config()
-    except Exception:
-        _agent_cfg = {}
-
-    # Codex commentary visibility (display.show_commentary, default true).
+# Codex commentary visibility (display.show_commentary, default true).
     # When true, completed Codex phase=commentary messages are delivered as
     # visible mid-turn updates through the interim message path. When false,
     # commentary falls back to the reasoning channel (visible only with
